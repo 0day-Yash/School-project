@@ -212,8 +212,8 @@ class Dashboard:
         root.mainloop()
 
 class MainMenu:
-    def __init__(self):
-        self.root = tk.Tk()
+    def __init__(self, root=None):
+        self.root = root if root else tk.Tk()
         self.root.title("A&Y Library System")
         self.root.attributes('-fullscreen', True)
         self.root.configure(bg="#f0f2f5")
