@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox
 from login import launch_login_gui
 from book_management import BookManagementGUI
 from borrow_return import BorrowGUI, ReturnGUI, HistoryGUI
+import sqlite3
 
 class Dashboard:
     def __init__(self, root, username):
@@ -10,151 +11,205 @@ class Dashboard:
         self.username = username
         self.setup_gui()
 
+    def get_statistics(self):
+        with sqlite3.connect("database.db") as conn:
+            c = conn.cursor()
+            
+            # Get total books
+            c.execute("SELECT COUNT(*) FROM books")
+            total_books = c.fetchone()[0]
+            
+            # Get total available books
+            c.execute("SELECT SUM(quantity) FROM books")
+            total_copies = c.fetchone()[0] or 0
+            
+            # Get total users
+            c.execute("SELECT COUNT(*) FROM users")
+            total_users = c.fetchone()[0]
+            
+            # Get total borrowings
+            c.execute("SELECT COUNT(*) FROM borrowings")
+            total_borrowings = c.fetchone()[0] or 0
+            
+            # Get active borrowings
+            c.execute("SELECT COUNT(*) FROM borrowings WHERE return_date IS NULL")
+            active_borrowings = c.fetchone()[0] or 0
+            
+            # Get most popular genre
+            c.execute("""
+                SELECT genre, COUNT(*) as count 
+                FROM books 
+                GROUP BY genre 
+                ORDER BY count DESC 
+                LIMIT 1
+            """)
+            popular_genre = c.fetchone()
+            popular_genre = popular_genre[0] if popular_genre else "N/A"
+            
+            return {
+                "total_books": total_books,
+                "total_copies": total_copies,
+                "total_users": total_users,
+                "total_borrowings": total_borrowings,
+                "active_borrowings": active_borrowings,
+                "popular_genre": popular_genre
+            }
+
     def setup_gui(self):
-        self.root.title(f"Welcome, {self.username} - A&Y Library Dashboard")
+        self.root.title("Library Dashboard")
         self.root.geometry("1200x800")
-        self.root.configure(bg="#f0f2f5")
+        self.root.configure(bg="#1a1a1a")
 
         # Main container
-        main_container = tk.Frame(self.root, bg="#f0f2f5", padx=40, pady=40)
+        main_container = tk.Frame(self.root, bg="#1a1a1a", padx=40, pady=40)
         main_container.pack(expand=True, fill="both")
 
-        # Welcome message
-        welcome_frame = tk.Frame(main_container, bg="#f0f2f5")
-        welcome_frame.pack(fill="x", pady=(0, 30))
+        # Header with welcome message and credits
+        header_frame = tk.Frame(main_container, bg="#1a1a1a")
+        header_frame.pack(fill="x", pady=(0, 30))
 
         welcome_label = tk.Label(
-            welcome_frame,
+            header_frame,
             text=f"Welcome back, {self.username}!",
             font=("Segoe UI", 24, "bold"),
-            bg="#f0f2f5",
-            fg="#1a73e8"
+            bg="#1a1a1a",
+            fg="#ffffff"
         )
-        welcome_label.pack()
+        welcome_label.pack(side="left")
 
-        # Quick stats frame
-        stats_frame = tk.Frame(main_container, bg="white", padx=20, pady=20)
+        credits_label = tk.Label(
+            header_frame,
+            text="Made by Yash and Aryan\nDatabase hosted on Purplerain servers",
+            font=("Segoe UI", 10),
+            bg="#1a1a1a",
+            fg="#888888",
+            justify="right"
+        )
+        credits_label.pack(side="right")
+
+        # Statistics section
+        stats_frame = tk.Frame(main_container, bg="#1a1a1a")
         stats_frame.pack(fill="x", pady=(0, 30))
 
-        # Stats title
-        stats_title = tk.Label(
-            stats_frame,
-            text="Library Overview",
-            font=("Segoe UI", 18, "bold"),
-            bg="white",
-            fg="#202124"
-        )
-        stats_title.pack(anchor="w", pady=(0, 20))
-
-        # Stats grid
-        stats_grid = tk.Frame(stats_frame, bg="white")
-        stats_grid.pack(fill="x")
-
-        # Sample stats (you can replace these with actual data)
-        stats = [
-            ("Total Books", "1,234"),
-            ("Available Books", "1,000"),
-            ("Borrowed Books", "234"),
-            ("Active Members", "150")
+        stats = self.get_statistics()
+        
+        # Create stat cards
+        stat_cards = [
+            ("Total Books", f"{stats['total_books']}", "#2ecc71"),
+            ("Total Copies", f"{stats['total_copies']}", "#3498db"),
+            ("Total Users", f"{stats['total_users']}", "#9b59b6"),
+            ("Active Borrowings", f"{stats['active_borrowings']}", "#e74c3c"),
+            ("Total Borrowings", f"{stats['total_borrowings']}", "#f1c40f"),
+            ("Popular Genre", stats['popular_genre'], "#1abc9c")
         ]
 
-        for i, (label, value) in enumerate(stats):
-            stat_frame = tk.Frame(stats_grid, bg="white")
-            stat_frame.grid(row=0, column=i, padx=20, sticky="ew")
-            stats_grid.columnconfigure(i, weight=1)
-
-            value_label = tk.Label(
-                stat_frame,
-                text=value,
-                font=("Segoe UI", 24, "bold"),
-                bg="white",
-                fg="#1a73e8"
+        for i, (title, value, color) in enumerate(stat_cards):
+            card = tk.Frame(
+                stats_frame,
+                bg="#2d2d2d",
+                padx=20,
+                pady=15,
+                relief="flat",
+                highlightbackground=color,
+                highlightthickness=1
             )
-            value_label.pack()
+            card.grid(row=0, column=i, padx=10, sticky="nsew")
 
-            label_label = tk.Label(
-                stat_frame,
-                text=label,
+            tk.Label(
+                card,
+                text=title,
                 font=("Segoe UI", 12),
-                bg="white",
-                fg="#5f6368"
-            )
-            label_label.pack()
+                bg="#2d2d2d",
+                fg="#888888"
+            ).pack()
 
-        # Quick actions frame
-        actions_frame = tk.Frame(main_container, bg="white", padx=20, pady=20)
-        actions_frame.pack(fill="x")
+            tk.Label(
+                card,
+                text=value,
+                font=("Segoe UI", 20, "bold"),
+                bg="#2d2d2d",
+                fg=color
+            ).pack(pady=(5, 0))
 
-        # Actions title
-        actions_title = tk.Label(
+        # Configure grid weights
+        stats_frame.grid_columnconfigure(0, weight=1)
+        stats_frame.grid_columnconfigure(1, weight=1)
+        stats_frame.grid_columnconfigure(2, weight=1)
+        stats_frame.grid_columnconfigure(3, weight=1)
+        stats_frame.grid_columnconfigure(4, weight=1)
+        stats_frame.grid_columnconfigure(5, weight=1)
+
+        # Quick actions section
+        actions_frame = tk.Frame(main_container, bg="#1a1a1a")
+        actions_frame.pack(fill="x", pady=(0, 30))
+
+        tk.Label(
             actions_frame,
             text="Quick Actions",
             font=("Segoe UI", 18, "bold"),
-            bg="white",
-            fg="#202124"
-        )
-        actions_title.pack(anchor="w", pady=(0, 20))
+            bg="#1a1a1a",
+            fg="#ffffff"
+        ).pack(anchor="w", pady=(0, 20))
 
         # Action buttons
-        buttons_frame = tk.Frame(actions_frame, bg="white")
-        buttons_frame.pack(fill="x")
-
-        # Define actions
         actions = [
-            ("Manage Books", self.open_book_management, "#4a9eff"),
-            ("Borrow Book", self.open_borrow, "#34a853"),
-            ("Return Book", self.open_return, "#fbbc05"),
-            ("View History", self.open_history, "#ea4335")
+            ("Borrow Book", self.open_borrow, "#2ecc71"),
+            ("Return Book", self.open_return, "#e74c3c"),
+            ("View History", self.open_history, "#3498db"),
+            ("Manage Books", self.open_book_management, "#9b59b6")
         ]
 
-        for i, (text, command, color) in enumerate(actions):
-            btn_frame = tk.Frame(buttons_frame, bg="white")
-            btn_frame.grid(row=0, column=i, padx=10, sticky="ew")
-            buttons_frame.columnconfigure(i, weight=1)
-
+        for title, command, color in actions:
             btn = tk.Button(
-                btn_frame,
-                text=text,
+                actions_frame,
+                text=title,
                 command=command,
                 font=("Segoe UI", 12, "bold"),
                 bg=color,
                 fg="white",
                 relief="flat",
-                cursor="hand2",
                 padx=20,
-                pady=10
+                pady=10,
+                cursor="hand2"
             )
-            btn.pack(fill="x")
+            btn.pack(side="left", padx=10)
 
-            # Add hover effect
-            btn.bind("<Enter>", lambda e, b=btn, c=color: self.on_enter(e, b, c))
-            btn.bind("<Leave>", lambda e, b=btn, c=color: self.on_leave(e, b, c))
-
-    def on_enter(self, event, button, color):
-        # Darken the color on hover
-        r, g, b = self.root.winfo_rgb(color)
-        r, g, b = r//256, g//256, b//256
-        darker = f'#{max(0, r-30):02x}{max(0, g-30):02x}{max(0, b-30):02x}'
-        button.configure(bg=darker)
-
-    def on_leave(self, event, button, color):
-        button.configure(bg=color)
-
-    def open_book_management(self):
-        book_window = tk.Toplevel(self.root)
-        app = BookManagementGUI(book_window)
+        # Logout button
+        logout_btn = tk.Button(
+            main_container,
+            text="Logout",
+            command=self.logout,
+            font=("Segoe UI", 12, "bold"),
+            bg="#e74c3c",
+            fg="white",
+            relief="flat",
+            padx=20,
+            pady=10,
+            cursor="hand2"
+        )
+        logout_btn.pack(side="right", pady=20)
 
     def open_borrow(self):
         borrow_window = tk.Toplevel(self.root)
-        app = BorrowGUI(borrow_window, self.username)
+        BorrowGUI(borrow_window, self.username)
 
     def open_return(self):
         return_window = tk.Toplevel(self.root)
-        app = ReturnGUI(return_window, self.username)
+        ReturnGUI(return_window, self.username)
 
     def open_history(self):
         history_window = tk.Toplevel(self.root)
-        app = HistoryGUI(history_window, self.username)
+        HistoryGUI(history_window, self.username)
+
+    def open_book_management(self):
+        book_window = tk.Toplevel(self.root)
+        BookManagementGUI(book_window)
+
+    def logout(self):
+        self.root.destroy()
+        root = tk.Tk()
+        app = MainMenu(root)
+        root.mainloop()
 
 class MainMenu:
     def __init__(self):
