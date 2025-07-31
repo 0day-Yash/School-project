@@ -2,109 +2,128 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import sqlite3
 from datetime import datetime, timedelta
+from db_init import DB_NAME
 
 class BorrowReturnSystem:
-    def __init__(self, db_name="database.db"):
-        self.db_name = db_name
-        self.init_tables()
+    def __init__(self):
+        self.db_name = DB_NAME
 
-    def init_tables(self):
-        with sqlite3.connect(self.db_name) as conn:
-            c = conn.cursor()
-            # Create borrowings table
-            c.execute("""
-            CREATE TABLE IF NOT EXISTS borrowings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                book_id INTEGER,
-                username TEXT,
-                borrow_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                due_date TIMESTAMP,
-                return_date TIMESTAMP,
-                FOREIGN KEY (book_id) REFERENCES books (id)
-            )
-            """)
-            conn.commit()
+    def calculate_fine(self, due_date, return_date=None):
+        try:
+            due = datetime.strptime(due_date, "%Y-%m-%d %H:%M:%S")
+            end = datetime.strptime(return_date, "%Y-%m-%d %H:%M:%S") if return_date else datetime.now()
+            days_overdue = (end - due).days
+            if days_overdue > 14:
+                return (days_overdue - 14) * 10  # Rs. 10 per day after 14 days
+            return 0
+        except ValueError as e:
+            print(f"Error parsing dates for fine calculation: {e}")
+            return 0
+
+    def update_fines(self, borrowing_id=None):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                c = conn.cursor()
+                if borrowing_id:
+                    c.execute("SELECT due_date, return_date FROM borrowings WHERE id = ?", (borrowing_id,))
+                    due_date, return_date = c.fetchone()
+                    fine = self.calculate_fine(due_date, return_date)
+                    c.execute("UPDATE borrowings SET fine = ? WHERE id = ?", (fine, borrowing_id))
+                else:
+                    c.execute("SELECT id, due_date, return_date FROM borrowings WHERE return_date IS NULL")
+                    for borrowing_id, due_date, _ in c.fetchall():
+                        fine = self.calculate_fine(due_date)
+                        c.execute("UPDATE borrowings SET fine = ? WHERE id = ?", (fine, borrowing_id))
+                conn.commit()
+        except sqlite3.Error as e:
+            print(f"Error updating fines: {e}")
 
     def borrow_book(self, book_id, username):
         try:
             with sqlite3.connect(self.db_name) as conn:
                 c = conn.cursor()
-                # Check if book is available
                 c.execute("SELECT available FROM books WHERE id = ?", (book_id,))
-                available = c.fetchone()[0]
-                if available <= 0:
+                result = c.fetchone()
+                if not result or result[0] <= 0:
                     return False, "Book is not available for borrowing"
-
-                # Calculate due date (14 days from now)
-                due_date = datetime.now() + timedelta(days=14)
-
-                # Add borrowing record
+                due_date = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d %H:%M:%S")
                 c.execute("""
-                INSERT INTO borrowings (book_id, username, due_date)
-                VALUES (?, ?, ?)
-                """, (book_id, username, due_date))
-
-                # Update book availability
-                c.execute("""
-                UPDATE books 
-                SET available = available - 1 
-                WHERE id = ?
-                """, (book_id,))
-
+                INSERT INTO borrowings (book_id, username, borrow_date, due_date)
+                VALUES (?, ?, ?, ?)
+                """, (book_id, username, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), due_date))
+                c.execute("UPDATE books SET available = available - 1 WHERE id = ?", (book_id,))
                 conn.commit()
+                print(f"Borrowed book ID {book_id} for user {username}")
                 return True, "Book borrowed successfully"
-        except Exception as e:
-            return False, str(e)
+        except sqlite3.Error as e:
+            print(f"Error borrowing book: {e}")
+            return False, f"Database error: {e}"
 
     def return_book(self, borrowing_id):
         try:
             with sqlite3.connect(self.db_name) as conn:
                 c = conn.cursor()
-                # Get book_id from borrowing record
-                c.execute("SELECT book_id FROM borrowings WHERE id = ?", (borrowing_id,))
-                book_id = c.fetchone()[0]
-
-                # Update borrowing record
-                c.execute("""
-                UPDATE borrowings 
-                SET return_date = CURRENT_TIMESTAMP 
-                WHERE id = ?
-                """, (borrowing_id,))
-
-                # Update book availability
-                c.execute("""
-                UPDATE books 
-                SET available = available + 1 
-                WHERE id = ?
-                """, (book_id,))
-
+                c.execute("SELECT book_id, return_date, due_date FROM borrowings WHERE id = ?", (borrowing_id,))
+                result = c.fetchone()
+                if not result:
+                    print(f"Borrowing ID {borrowing_id} not found")
+                    return False, "Borrowing record not found"
+                if result[1] is not None:
+                    print(f"Borrowing ID {borrowing_id} already returned")
+                    return False, "Book already returned"
+                book_id, _, due_date = result
+                return_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                fine = self.calculate_fine(due_date, return_date)
+                c.execute("UPDATE borrowings SET return_date = ?, fine = ? WHERE id = ?", (return_date, fine, borrowing_id))
+                c.execute("UPDATE books SET available = available + 1 WHERE id = ?", (book_id,))
                 conn.commit()
-                return True, "Book returned successfully"
-        except Exception as e:
-            return False, str(e)
+                print(f"Returned book ID {book_id} for borrowing ID {borrowing_id} with fine Rs. {fine}")
+                return True, f"Book returned successfully{f'. Fine: Rs. {fine}' if fine > 0 else ''}"
+        except sqlite3.Error as e:
+            print(f"Error returning book: {e}")
+            return False, f"Database error: {e}"
 
     def get_user_borrowings(self, username):
-        with sqlite3.connect(self.db_name) as conn:
-            c = conn.cursor()
-            c.execute("""
-            SELECT b.id, bk.title, bk.author, b.borrow_date, b.due_date, b.return_date
-            FROM borrowings b
-            JOIN books bk ON b.book_id = bk.id
-            WHERE b.username = ?
-            ORDER BY b.borrow_date DESC
-            """, (username,))
-            return c.fetchall()
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                c = conn.cursor()
+                c.execute("""
+                SELECT b.id, bk.title, bk.author, b.borrow_date, b.due_date, b.return_date, b.fine
+                FROM borrowings b
+                JOIN books bk ON b.book_id = bk.id
+                WHERE b.username = ?
+                ORDER BY b.borrow_date DESC
+                """, (username,))
+                return c.fetchall()
+        except sqlite3.Error as e:
+            print(f"Error fetching borrowings: {e}")
+            return []
+
+    def get_unreturned_borrowings(self, username):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                c = conn.cursor()
+                c.execute("""
+                SELECT b.id, bk.title, bk.author, b.borrow_date, b.due_date
+                FROM borrowings b
+                JOIN books bk ON b.book_id = bk.id
+                WHERE b.username = ? AND b.return_date IS NULL
+                ORDER BY b.borrow_date DESC
+                """, (username,))
+                return c.fetchall()
+        except sqlite3.Error as e:
+            print(f"Error fetching unreturned borrowings: {e}")
+            return []
 
     def get_available_books(self):
-        with sqlite3.connect(self.db_name) as conn:
-            c = conn.cursor()
-            c.execute("""
-            SELECT id, title, author, available
-            FROM books
-            WHERE available > 0
-            ORDER BY title
-            """)
-            return c.fetchall()
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                c = conn.cursor()
+                c.execute("SELECT id, title, author, available FROM books WHERE available > 0 ORDER BY title")
+                return c.fetchall()
+        except sqlite3.Error as e:
+            print(f"Error fetching available books: {e}")
+            return []
 
 class BorrowGUI:
     def __init__(self, root, username):
@@ -118,97 +137,50 @@ class BorrowGUI:
         self.root.geometry("1000x600")
         self.root.configure(bg="#f0f2f5")
 
-        # Main container
         main_container = tk.Frame(self.root, bg="#f0f2f5", padx=20, pady=20)
         main_container.pack(expand=True, fill="both")
 
-        # Title
-        title = tk.Label(
-            main_container,
-            text="Available Books",
-            font=("Segoe UI", 24, "bold"),
-            bg="#f0f2f5",
-            fg="#1a73e8"
-        )
+        title = tk.Label(main_container, text="Available Books", font=("Segoe UI", 24, "bold"), bg="#f0f2f5", fg="#1a73e8")
         title.pack(pady=(0, 20))
 
-        # Search frame
         search_frame = tk.Frame(main_container, bg="#f0f2f5")
         search_frame.pack(fill="x", pady=(0, 20))
-
         self.search_var = tk.StringVar()
         self.search_var.trace('w', self.on_search_change)
-
-        search_entry = ttk.Entry(
-            search_frame,
-            textvariable=self.search_var,
-            font=("Segoe UI", 12),
-            width=40
-        )
+        search_entry = ttk.Entry(search_frame, textvariable=self.search_var, font=("Segoe UI", 12), width=40)
         search_entry.pack(side="left", padx=(0, 10))
 
-        # Treeview for available books
-        self.tree = ttk.Treeview(
-            main_container,
-            columns=("ID", "Title", "Author", "Available"),
-            show="headings",
-            height=15
-        )
-
-        # Configure columns
+        self.tree = ttk.Treeview(main_container, columns=("ID", "Title", "Author", "Available"), show="headings", height=15)
         self.tree.heading("ID", text="ID")
         self.tree.heading("Title", text="Title")
         self.tree.heading("Author", text="Author")
         self.tree.heading("Available", text="Available")
-
-        # Set column widths
         self.tree.column("ID", width=50)
         self.tree.column("Title", width=400)
         self.tree.column("Author", width=200)
         self.tree.column("Available", width=100)
-
         self.tree.pack(fill="both", expand=True)
 
-        # Scrollbar
         scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=self.tree.yview)
         scrollbar.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scrollbar.set)
 
-        # Borrow button
-        borrow_btn = tk.Button(
-            main_container,
-            text="Borrow Selected Book",
-            command=self.borrow_selected_book,
-            font=("Segoe UI", 12, "bold"),
-            bg="#4a9eff",
-            fg="white",
-            relief="flat",
-            cursor="hand2",
-            padx=20,
-            pady=10
-        )
-        borrow_btn.pack(pady=20)
+        tk.Button(main_container, text="Borrow Selected Book", command=self.borrow_selected_book, font=("Segoe UI", 12, "bold"), bg="#4a9eff", fg="white", relief="flat", cursor="hand2", padx=20, pady=10).pack(pady=10)
+        tk.Button(main_container, text="Back", command=self.root.destroy, font=("Segoe UI", 12, "bold"), bg="#6c757d", fg="white", relief="flat", cursor="hand2", padx=20, pady=10).pack(pady=10)
 
-        # Load initial data
         self.load_available_books()
 
     def load_available_books(self):
-        # Clear existing items
         for item in self.tree.get_children():
             self.tree.delete(item)
-
-        # Load available books
         books = self.borrow_system.get_available_books()
         for book in books:
             self.tree.insert("", "end", values=book)
 
     def on_search_change(self, *args):
         query = self.search_var.get().lower()
-        # Clear existing items
         for item in self.tree.get_children():
             self.tree.delete(item)
-
-        # Load filtered books
         books = self.borrow_system.get_available_books()
         for book in books:
             if query in book[1].lower() or query in book[2].lower():
@@ -219,10 +191,8 @@ class BorrowGUI:
         if not selected:
             messagebox.showwarning("Warning", "Please select a book to borrow")
             return
-
         book_id = self.tree.item(selected[0])["values"][0]
         success, message = self.borrow_system.borrow_book(book_id, self.username)
-        
         if success:
             messagebox.showinfo("Success", message)
             self.load_available_books()
@@ -241,96 +211,48 @@ class ReturnGUI:
         self.root.geometry("1000x600")
         self.root.configure(bg="#f0f2f5")
 
-        # Main container
         main_container = tk.Frame(self.root, bg="#f0f2f5", padx=20, pady=20)
         main_container.pack(expand=True, fill="both")
 
-        # Title
-        title = tk.Label(
-            main_container,
-            text="Your Borrowed Books",
-            font=("Segoe UI", 24, "bold"),
-            bg="#f0f2f5",
-            fg="#1a73e8"
-        )
+        title = tk.Label(main_container, text="Your Borrowed Books", font=("Segoe UI", 24, "bold"), bg="#f0f2f5", fg="#1a73e8")
         title.pack(pady=(0, 20))
 
-        # Treeview for borrowed books
-        self.tree = ttk.Treeview(
-            main_container,
-            columns=("ID", "Title", "Author", "Borrow Date", "Due Date", "Status"),
-            show="headings",
-            height=15
-        )
-
-        # Configure columns
+        self.tree = ttk.Treeview(main_container, columns=("ID", "Title", "Author", "Borrow Date", "Due Date"), show="headings", height=15)
         self.tree.heading("ID", text="ID")
         self.tree.heading("Title", text="Title")
         self.tree.heading("Author", text="Author")
         self.tree.heading("Borrow Date", text="Borrow Date")
         self.tree.heading("Due Date", text="Due Date")
-        self.tree.heading("Status", text="Status")
-
-        # Set column widths
         self.tree.column("ID", width=50)
         self.tree.column("Title", width=300)
         self.tree.column("Author", width=200)
         self.tree.column("Borrow Date", width=150)
         self.tree.column("Due Date", width=150)
-        self.tree.column("Status", width=100)
-
         self.tree.pack(fill="both", expand=True)
 
-        # Scrollbar
         scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=self.tree.yview)
         scrollbar.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scrollbar.set)
 
-        # Return button
-        return_btn = tk.Button(
-            main_container,
-            text="Return Selected Book",
-            command=self.return_selected_book,
-            font=("Segoe UI", 12, "bold"),
-            bg="#34a853",
-            fg="white",
-            relief="flat",
-            cursor="hand2",
-            padx=20,
-            pady=10
-        )
-        return_btn.pack(pady=20)
+        tk.Button(main_container, text="Return Selected Book", command=self.return_selected_book, font=("Segoe UI", 12, "bold"), bg="#34a853", fg="white", relief="flat", cursor="hand2", padx=20, pady=10).pack(pady=10)
+        tk.Button(main_container, text="Back", command=self.root.destroy, font=("Segoe UI", 12, "bold"), bg="#6c757d", fg="white", relief="flat", cursor="hand2", padx=20, pady=10).pack(pady=10)
 
-        # Load initial data
         self.load_borrowed_books()
 
     def load_borrowed_books(self):
-        # Clear existing items
         for item in self.tree.get_children():
             self.tree.delete(item)
-
-        # Load borrowed books
-        borrowings = self.borrow_system.get_user_borrowings(self.username)
+        borrowings = self.borrow_system.get_unreturned_borrowings(self.username)
         for b in borrowings:
-            status = "Returned" if b[5] else "Borrowed"
-            self.tree.insert("", "end", values=(
-                b[0],  # borrowing id
-                b[1],  # title
-                b[2],  # author
-                b[3],  # borrow date
-                b[4],  # due date
-                status
-            ))
+            self.tree.insert("", "end", values=b)
 
     def return_selected_book(self):
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("Warning", "Please select a book to return")
             return
-
         borrowing_id = self.tree.item(selected[0])["values"][0]
         success, message = self.borrow_system.return_book(borrowing_id)
-        
         if success:
             messagebox.showinfo("Success", message)
             self.load_borrowed_books()
@@ -349,69 +271,41 @@ class HistoryGUI:
         self.root.geometry("1000x600")
         self.root.configure(bg="#f0f2f5")
 
-        # Main container
         main_container = tk.Frame(self.root, bg="#f0f2f5", padx=20, pady=20)
         main_container.pack(expand=True, fill="both")
 
-        # Title
-        title = tk.Label(
-            main_container,
-            text="Your Borrowing History",
-            font=("Segoe UI", 24, "bold"),
-            bg="#f0f2f5",
-            fg="#1a73e8"
-        )
+        title = tk.Label(main_container, text="Your Borrowing History", font=("Segoe UI", 24, "bold"), bg="#f0f2f5", fg="#1a73e8")
         title.pack(pady=(0, 20))
 
-        # Treeview for history
-        self.tree = ttk.Treeview(
-            main_container,
-            columns=("Title", "Author", "Borrow Date", "Due Date", "Return Date", "Status"),
-            show="headings",
-            height=20
-        )
-
-        # Configure columns
+        self.tree = ttk.Treeview(main_container, columns=("Title", "Author", "Borrow Date", "Due Date", "Return Date", "Fine"), show="headings", height=20)
         self.tree.heading("Title", text="Title")
         self.tree.heading("Author", text="Author")
         self.tree.heading("Borrow Date", text="Borrow Date")
         self.tree.heading("Due Date", text="Due Date")
         self.tree.heading("Return Date", text="Return Date")
-        self.tree.heading("Status", text="Status")
-
-        # Set column widths
+        self.tree.heading("Fine", text="Fine (Rs.)")
         self.tree.column("Title", width=300)
         self.tree.column("Author", width=200)
         self.tree.column("Borrow Date", width=150)
         self.tree.column("Due Date", width=150)
         self.tree.column("Return Date", width=150)
-        self.tree.column("Status", width=100)
-
+        self.tree.column("Fine", width=100)
         self.tree.pack(fill="both", expand=True)
 
-        # Scrollbar
         scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=self.tree.yview)
         scrollbar.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scrollbar.set)
 
-        # Load initial data
+        tk.Button(main_container, text="Back", command=self.root.destroy, font=("Segoe UI", 12, "bold"), bg="#6c757d", fg="white", relief="flat", cursor="hand2", padx=20, pady=10).pack(pady=10)
+
         self.load_history()
 
     def load_history(self):
-        # Clear existing items
+        self.borrow_system.update_fines()  # Update fines before displaying
         for item in self.tree.get_children():
             self.tree.delete(item)
-
-        # Load history
         borrowings = self.borrow_system.get_user_borrowings(self.username)
         for b in borrowings:
-            status = "Returned" if b[5] else "Borrowed"
             return_date = b[5] if b[5] else "Not returned"
-            self.tree.insert("", "end", values=(
-                b[1],  # title
-                b[2],  # author
-                b[3],  # borrow date
-                b[4],  # due date
-                return_date,
-                status
-            )) 
+            fine = b[6]
+            self.tree.insert("", "end", values=(b[1], b[2], b[3], b[4], return_date, fine))
