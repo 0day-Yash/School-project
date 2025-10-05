@@ -153,83 +153,84 @@ class AdminPanel:
             edit_win = tk.Toplevel(self.root)
             edit_win.title("Edit Book")
             edit_win.geometry("400x350")
-            edit_win.configure(bg="#e9ecef")
+            edit_win.configure(bg="#f0f2f5")
 
-            tk.Label(edit_win, text="Title:", font=("Segoe UI", 12), bg="#e9ecef").grid(row=0, column=0, padx=15, pady=10, sticky="e")
-            title_entry = tk.Entry(edit_win, font=("Segoe UI", 12), width=25)
+            tk.Label(edit_win, text="Title:", bg="#f0f2f5").pack()
+            title_entry = ttk.Entry(edit_win)
+            title_entry.pack()
             title_entry.insert(0, book[0])
-            title_entry.grid(row=0, column=1, pady=10)
 
-            tk.Label(edit_win, text="Author:", font=("Segoe UI", 12), bg="#e9ecef").grid(row=1, column=0, padx=15, pady=10, sticky="e")
-            author_entry = tk.Entry(edit_win, font=("Segoe UI", 12), width=25)
+            tk.Label(edit_win, text="Author:", bg="#f0f2f5").pack()
+            author_entry = ttk.Entry(edit_win)
+            author_entry.pack()
             author_entry.insert(0, book[1])
-            author_entry.grid(row=1, column=1, pady=10)
 
-            tk.Label(edit_win, text="ISBN:", font=("Segoe UI", 12), bg="#e9ecef").grid(row=2, column=0, padx=15, pady=10, sticky="e")
-            isbn_entry = tk.Entry(edit_win, font=("Segoe UI", 12), width=25)
+            tk.Label(edit_win, text="ISBN:", bg="#f0f2f5").pack()
+            isbn_entry = ttk.Entry(edit_win)
+            isbn_entry.pack()
             isbn_entry.insert(0, book[2])
-            isbn_entry.grid(row=2, column=1, pady=10)
 
-            tk.Label(edit_win, text="Genre:", font=("Segoe UI", 12), bg="#e9ecef").grid(row=3, column=0, padx=15, pady=10, sticky="e")
-            genre_entry = tk.Entry(edit_win, font=("Segoe UI", 12), width=25)
+            tk.Label(edit_win, text="Genre:", bg="#f0f2f5").pack()
+            genre_entry = ttk.Entry(edit_win)
+            genre_entry.pack()
             genre_entry.insert(0, book[3])
-            genre_entry.grid(row=3, column=1, pady=10)
 
-            tk.Label(edit_win, text="Publication Year:", font=("Segoe UI", 12), bg="#e9ecef").grid(row=4, column=0, padx=15, pady=10, sticky="e")
-            pub_year_entry = tk.Entry(edit_win, font=("Segoe UI", 12), width=25)
-            pub_year_entry.insert(0, book[4] if book[4] else "")
-            pub_year_entry.grid(row=4, column=1, pady=10)
+            tk.Label(edit_win, text="Publication Year:", bg="#f0f2f5").pack()
+            pub_year_entry = ttk.Entry(edit_win)
+            pub_year_entry.pack()
+            pub_year_entry.insert(0, book[4] or "")
 
-            tk.Label(edit_win, text="Quantity:", font=("Segoe UI", 12), bg="#e9ecef").grid(row=5, column=0, padx=15, pady=10, sticky="e")
-            quantity_entry = tk.Entry(edit_win, font=("Segoe UI", 12), width=25)
+            tk.Label(edit_win, text="Quantity:", bg="#f0f2f5").pack()
+            quantity_entry = ttk.Entry(edit_win)
+            quantity_entry.pack()
             quantity_entry.insert(0, book[5])
-            quantity_entry.grid(row=5, column=1, pady=10)
 
-            tk.Button(edit_win, text="Save Changes", font=("Segoe UI", 12, "bold"), bg="#20c997", fg="white", relief="flat", padx=20, pady=10, cursor="hand2", command=save_changes).grid(row=6, column=1, pady=15)
+            tk.Button(edit_win, text="Save Changes", command=save_changes).pack(pady=10)
         except sqlite3.Error as e:
-            messagebox.showerror("Error", f"Failed to load book: {e}")
+            messagebox.showerror("Error", f"Failed to load book for editing: {e}")
 
     def view_fines(self):
         try:
             with sqlite3.connect(self.db_name) as conn:
                 c = conn.cursor()
+                c.execute("SELECT id, due_date, return_date FROM borrowings")
+                for row in c.fetchall():
+                    borrowing_id, due_date, return_date = row
+                    fine = self.calculate_fine(due_date, return_date)
+                    c.execute("UPDATE borrowings SET fine = ? WHERE id = ?", (fine, borrowing_id))
+                conn.commit()
                 c.execute("""
-                SELECT b.id, b.username, bk.title, b.due_date, b.return_date, b.fine
+                SELECT b.username, bk.title, b.fine
                 FROM borrowings b
                 JOIN books bk ON b.book_id = bk.id
                 WHERE b.fine > 0
-                ORDER BY b.username, b.due_date
                 """)
                 fines = c.fetchall()
             fine_win = tk.Toplevel(self.root)
-            fine_win.title("Fines Report")
-            fine_win.geometry("800x400")
+            fine_win.title("View Fines")
+            fine_win.geometry("800x600")
             fine_win.configure(bg="#e9ecef")
 
-            tree = ttk.Treeview(fine_win, columns=("ID", "Username", "Book", "Due Date", "Return Date", "Fine"), show="headings")
-            tree.heading("ID", text="ID")
-            tree.heading("Username", text="Username")
-            tree.heading("Book", text="Book Title")
-            tree.heading("Due Date", text="Due Date")
-            tree.heading("Return Date", text="Return Date")
-            tree.heading("Fine", text="Fine (Rs.)")
-            tree.column("ID", width=50)
-            tree.column("Username", width=100)
-            tree.column("Book", width=200)
-            tree.column("Due Date", width=150)
-            tree.column("Return Date", width=150)
-            tree.column("Fine", width=100)
-            tree.pack(fill="both", expand=True, padx=15, pady=15)
+            tk.Label(fine_win, text="User Fines", font=("Segoe UI", 16, "bold"), bg="#e9ecef", fg="#007bff").pack(anchor="w", padx=15, pady=10)
 
-            scrollbar = ttk.Scrollbar(fine_win, orient="vertical", command=tree.yview)
+            fine_tree = ttk.Treeview(fine_win, columns=("Username", "Book Title", "Fine"), show="headings")
+            fine_tree.heading("Username", text="Username")
+            fine_tree.heading("Book Title", text="Book Title")
+            fine_tree.heading("Fine", text="Fine (Rs.)")
+            fine_tree.column("Username", width=150)
+            fine_tree.column("Book Title", width=300)
+            fine_tree.column("Fine", width=100)
+            fine_tree.pack(fill="both", expand=True, padx=15, pady=10)
+
+            scrollbar = ttk.Scrollbar(fine_win, orient="vertical", command=fine_tree.yview)
             scrollbar.pack(side="right", fill="y")
-            tree.configure(yscrollcommand=scrollbar.set)
+            fine_tree.configure(yscrollcommand=scrollbar.set)
 
             for fine in fines:
-                tree.insert("", "end", values=fine)
+                fine_tree.insert("", "end", values=fine)
 
-            total_fine = sum(f[5] for f in fines)
-            tk.Label(fine_win, text=f"Total Fines Outstanding: Rs. {total_fine}", font=("Segoe UI", 12, "bold"), bg="#e9ecef", fg="#007bff").pack(pady=10)
+            total_fine = sum(f[2] for f in fines)
+            tk.Label(fine_win, text=f"Total Fines: Rs. {total_fine}", font=("Segoe UI", 12, "bold"), bg="#e9ecef", fg="#007bff").pack(pady=10)
         except sqlite3.Error as e:
             messagebox.showerror("Error", f"Failed to load fines: {e}")
 
@@ -237,26 +238,27 @@ class AdminPanel:
         try:
             with sqlite3.connect(self.db_name) as conn:
                 c = conn.cursor()
-                c.execute("SELECT username, is_admin FROM users ORDER BY username")
+                c.execute("SELECT username, is_admin FROM users")
                 users = c.fetchall()
                 c.execute("""
                 SELECT b.id, b.username, bk.title, b.borrow_date, b.due_date, b.return_date, b.fine
                 FROM borrowings b
                 JOIN books bk ON b.book_id = bk.id
-                ORDER BY b.username, b.borrow_date DESC
                 """)
                 borrowings = c.fetchall()
             user_win = tk.Toplevel(self.root)
-            user_win.title("User Information")
-            user_win.geometry("900x600")
+            user_win.title("View Users and Borrowings")
+            user_win.geometry("1200x800")
             user_win.configure(bg="#e9ecef")
 
-            tk.Label(user_win, text="All Users", font=("Segoe UI", 16, "bold"), bg="#e9ecef", fg="#007bff").pack(anchor="w", padx=15, pady=10)
-            user_tree = ttk.Treeview(user_win, columns=("Username", "Is Admin"), show="headings")
+            tk.Label(user_win, text="Users List", font=("Segoe UI", 16, "bold"), bg="#e9ecef", fg="#007bff").pack(anchor="w", padx=15, pady=10)
+            user_tree = ttk.Treeview(user_win, columns=("Username", "Admin", "Action"), show="headings")
             user_tree.heading("Username", text="Username")
-            user_tree.heading("Is Admin", text="Is Admin")
+            user_tree.heading("Admin", text="Admin")
+            user_tree.heading("Action", text="Action")
             user_tree.column("Username", width=200)
-            user_tree.column("Is Admin", width=100)
+            user_tree.column("Admin", width=100)
+            user_tree.column("Action", width=100)
             user_tree.pack(fill="x", padx=15, pady=10)
 
             user_scrollbar = ttk.Scrollbar(user_win, orient="vertical", command=user_tree.yview)
@@ -264,7 +266,9 @@ class AdminPanel:
             user_tree.configure(yscrollcommand=user_scrollbar.set)
 
             for user in users:
-                user_tree.insert("", "end", values=(user[0], "Yes" if user[1] else "No"))
+                username, is_admin = user
+                user_tree.insert("", "end", values=(username, "Yes" if is_admin else "No", "Delete"), tags=(username,))
+                user_tree.tag_bind(username, "<Button-1>", lambda e, u=username: self.delete_user(u) if user_tree.identify_column(e.x) == "#3" else None)
 
             tk.Label(user_win, text="Borrowing History", font=("Segoe UI", 16, "bold"), bg="#e9ecef", fg="#007bff").pack(anchor="w", padx=15, pady=10)
             borrow_tree = ttk.Treeview(user_win, columns=("ID", "Username", "Book", "Borrow Date", "Due Date", "Return Date", "Fine"), show="headings")
@@ -296,6 +300,27 @@ class AdminPanel:
             tk.Label(user_win, text=f"Total Fines Across All Users: Rs. {total_fine}", font=("Segoe UI", 12, "bold"), bg="#e9ecef", fg="#007bff").pack(pady=10)
         except sqlite3.Error as e:
             messagebox.showerror("Error", f"Failed to load user information: {e}")
+            
+    def delete_user(self, username):
+        if username == self.username:
+            messagebox.showerror("Error", "Cannot delete the currently logged-in admin.")
+            return
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                c = conn.cursor()
+                c.execute("SELECT COUNT(*) FROM borrowings WHERE username = ? AND return_date IS NULL", (username,))
+                active_borrowings = c.fetchone()[0]
+                if active_borrowings > 0:
+                    messagebox.showwarning("Warning", f"Cannot delete user {username} because they have {active_borrowings} active borrowing(s).")
+                    return
+                if messagebox.askyesno("Confirm", f"Are you sure you want to delete user {username} and their borrowing history?"):
+                    c.execute("DELETE FROM borrowings WHERE username = ?", (username,))
+                    c.execute("DELETE FROM users WHERE username = ?", (username,))
+                    conn.commit()
+                    messagebox.showinfo("Success", f"User {username} deleted successfully.")
+                    self.view_users()
+        except sqlite3.Error as e:
+            messagebox.showerror("Error", f"Failed to delete user: {e}")
 
     def setup_gui(self):
         self.root.title("Admin Panel - A&Y Library")

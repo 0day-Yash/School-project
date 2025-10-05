@@ -3,6 +3,10 @@ from tkinter import ttk, messagebox
 import sqlite3
 from datetime import datetime, timedelta
 from db_init import DB_NAME
+import pandas as pd
+import numpy as np
+from scipy.sparse import csr_matrix
+from scipy.sparse.linalg import svds
 
 class BorrowReturnSystem:
     def __init__(self):
@@ -123,6 +127,80 @@ class BorrowReturnSystem:
                 return c.fetchall()
         except sqlite3.Error as e:
             print(f"Error fetching available books: {e}")
+            return []
+
+    def get_recommended_books(self, username, top_n=5):
+        try:
+            with sqlite3.connect(self.db_name) as conn:
+                c = conn.cursor()
+                # Get all unique users and books
+                c.execute("SELECT DISTINCT username FROM users")
+                users = [row[0] for row in c.fetchall()]
+                c.execute("SELECT DISTINCT id FROM books")
+                books = [row[0] for row in c.fetchall()]
+                if not users or not books:
+                    return []
+                user_map = {u: i for i, u in enumerate(users)}
+                book_map = {b: i for i, b in enumerate(books)}
+                # Get interactions (binary: 1 if borrowed)
+                c.execute("SELECT DISTINCT username, book_id, 1 as interaction FROM borrowings")
+                data = c.fetchall()
+                if not data:
+                    # Fallback to popular books
+                    c.execute("""
+                    SELECT book_id, COUNT(*) as borrows
+                    FROM borrowings
+                    GROUP BY book_id
+                    ORDER BY borrows DESC
+                    LIMIT ?
+                    """, (top_n,))
+                    pop = c.fetchall()
+                    recs = [row[0] for row in pop]
+                    if recs:
+                        c.execute("SELECT id, title, author FROM books WHERE id IN ({})".format(','.join('?' for _ in recs)), recs)
+                        return c.fetchall()
+                    else:
+                        return []
+                # Build sparse matrix (FIX: Use float64 dtype for SVD compatibility)
+                rows = []
+                cols = []
+                vals = []
+                for u, b, inter in data:
+                    if u in user_map and b in book_map:
+                        rows.append(user_map[u])
+                        cols.append(book_map[b])
+                        vals.append(inter)
+                matrix = csr_matrix((vals, (rows, cols)), shape=(len(users), len(books)), dtype=np.float64)
+                # SVD decomposition
+                k = min(50, min(matrix.shape[0], matrix.shape[1]) - 1)
+                U, sigma, Vt = svds(matrix, k=k)
+                sigma_diag = np.diag(sigma)
+                predicted = np.dot(np.dot(U, sigma_diag), Vt)
+                user_idx = user_map.get(username)
+                if user_idx is None:
+                    return []
+                user_preds = predicted[user_idx, :]
+                # Get books already borrowed
+                c.execute("SELECT DISTINCT book_id FROM borrowings WHERE username = ?", (username,))
+                borrowed = set(row[0] for row in c.fetchall())
+                # Get top recommendations
+                rec_indices = np.argsort(user_preds)[::-1]
+                rec_books = []
+                for idx in rec_indices:
+                    book_id = books[idx]
+                    if book_id not in borrowed:
+                        rec_books.append(book_id)
+                    if len(rec_books) == top_n:
+                        break
+                # Get book details
+                if rec_books:
+                    placeholders = ','.join('?' for _ in rec_books)
+                    c.execute(f"SELECT id, title, author FROM books WHERE id IN ({placeholders})", rec_books)
+                    return c.fetchall()
+                else:
+                    return []
+        except Exception as e:
+            print(f"Error in recommendations: {e}")
             return []
 
 class BorrowGUI:
@@ -309,3 +387,69 @@ class HistoryGUI:
             return_date = b[5] if b[5] else "Not returned"
             fine = b[6]
             self.tree.insert("", "end", values=(b[1], b[2], b[3], b[4], return_date, fine))
+
+class RecommendationsGUI:
+    def __init__(self, root, username):
+        self.root = root
+        self.username = username
+        self.borrow_system = BorrowReturnSystem()
+        self.setup_gui()
+
+    def setup_gui(self):
+        self.root.title("Book Recommendations")
+        self.root.geometry("1000x600")
+        self.root.configure(bg="#f0f2f5")
+
+        main_container = tk.Frame(self.root, bg="#f0f2f5", padx=20, pady=20)
+        main_container.pack(expand=True, fill="both")
+
+        title = tk.Label(main_container, text="Recommended Books for You", font=("Segoe UI", 24, "bold"), bg="#f0f2f5", fg="#1a73e8")
+        title.pack(pady=(0, 20))
+
+        self.tree = ttk.Treeview(main_container, columns=("ID", "Title", "Author"), show="headings", height=15)
+        self.tree.heading("ID", text="ID")
+        self.tree.heading("Title", text="Title")
+        self.tree.heading("Author", text="Author")
+        self.tree.column("ID", width=50)
+        self.tree.column("Title", width=400)
+        self.tree.column("Author", width=200)
+        self.tree.pack(fill="both", expand=True)
+
+        scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=self.tree.yview)
+        scrollbar.pack(side="right", fill="y")
+        self.tree.configure(yscrollcommand=scrollbar.set)
+
+        tk.Button(main_container, text="Borrow Selected", command=self.borrow_selected, font=("Segoe UI", 12, "bold"), bg="#4a9eff", fg="white", relief="flat", cursor="hand2", padx=20, pady=10).pack(pady=10)
+        tk.Button(main_container, text="Back", command=self.root.destroy, font=("Segoe UI", 12, "bold"), bg="#6c757d", fg="white", relief="flat", cursor="hand2", padx=20, pady=10).pack(pady=10)
+
+        self.load_recommendations()
+
+    def load_recommendations(self):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        recs = self.borrow_system.get_recommended_books(self.username)
+        for rec in recs:
+            self.tree.insert("", "end", values=rec)
+        if not recs:
+            messagebox.showinfo("Info", "No recommendations available yet. Borrow some books to get personalized suggestions!")
+
+    def borrow_selected(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Warning", "Please select a book to borrow")
+            return
+        book_id = self.tree.item(selected[0])["values"][0]
+        # Check availability
+        with sqlite3.connect(DB_NAME) as conn:
+            c = conn.cursor()
+            c.execute("SELECT available FROM books WHERE id = ?", (book_id,))
+            result = c.fetchone()
+            if not result or result[0] <= 0:
+                messagebox.showerror("Error", "Book not available")
+                return
+        success, message = self.borrow_system.borrow_book(book_id, self.username)
+        if success:
+            messagebox.showinfo("Success", message)
+            self.load_recommendations()
+        else:
+            messagebox.showerror("Error", message)

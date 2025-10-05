@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from login import launch_login_gui
-from borrow_return import BorrowGUI, ReturnGUI, HistoryGUI
+from borrow_return import BorrowGUI, ReturnGUI, HistoryGUI, RecommendationsGUI
 from admin import AdminPanel
 import sqlite3
 from db_init import DB_NAME
@@ -96,7 +96,8 @@ class Dashboard:
         actions = [
             ("Borrow Book", self.open_borrow, "#20c997"),
             ("Return Book", self.open_return, "#dc3545"),
-            ("View History", self.open_history, "#007bff")
+            ("View History", self.open_history, "#007bff"),
+            ("Recommendations", self.open_recommendations, "#ffc107")
         ]
         if self.is_admin:
             actions.append(("Admin Panel", self.open_admin_panel, "#6c757d"))
@@ -150,6 +151,11 @@ class Dashboard:
         history_window = tk.Toplevel(self.root)
         HistoryGUI(history_window, self.username)
         history_window.protocol("WM_DELETE_WINDOW", lambda: [history_window.destroy(), self.update_stats()])
+
+    def open_recommendations(self):
+        rec_window = tk.Toplevel(self.root)
+        RecommendationsGUI(rec_window, self.username)
+        rec_window.protocol("WM_DELETE_WINDOW", lambda: [rec_window.destroy(), self.update_stats()])
 
     def open_admin_panel(self):
         if self.is_admin:
