@@ -4,6 +4,12 @@ from tkinter import messagebox, ttk
 import sqlite3
 import bcrypt
 from db_init import init_db, DB_NAME
+import os
+try:
+    from PIL import Image, ImageTk
+    PIL_AVAILABLE = True
+except Exception:
+    PIL_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 if not logger.handlers:
@@ -98,7 +104,40 @@ def launch_login_gui(on_success):
     root = tk.Tk()
     root.title("A&Y Library Login")
     root.attributes('-fullscreen', True)
-    root.configure(bg="#f0f2f5")
+
+    # Attempt to load background image (assets/library_bg.jpg). If Pillow not available
+    # or file missing, fall back to a plain background color.
+    bg_image_path = os.path.join(os.path.dirname(__file__), 'assets', 'library_bg.jpg')
+    if PIL_AVAILABLE and os.path.exists(bg_image_path):
+        try:
+            # Get screen size and prepare background with dim overlay (~30%)
+            sw = root.winfo_screenwidth()
+            sh = root.winfo_screenheight()
+            img = Image.open(bg_image_path).convert('RGBA')
+            img = img.resize((sw, sh), Image.LANCZOS)
+            overlay = Image.new('RGBA', (sw, sh), (0, 0, 0, int(255 * 0.30)))
+            img = Image.alpha_composite(img, overlay)
+            bg_photo = ImageTk.PhotoImage(img)
+
+            canvas = tk.Canvas(root, width=sw, height=sh, highlightthickness=0)
+            canvas.pack(fill='both', expand=True)
+            # Keep a strong reference on the root to avoid GC and Tcl image disposal
+            root._bg_photo = bg_photo
+            canvas.bg_photo = bg_photo  # also keep on canvas
+            canvas.create_image(0, 0, image=root._bg_photo, anchor='nw')
+
+            # main content will be placed on the canvas (centered)
+            main_container_parent = canvas
+            create_window_fn = lambda widget: canvas.create_window(sw // 2, sh // 2, window=widget)
+        except Exception as e:
+            logger.exception("Failed to load background image: %s", e)
+            root.configure(bg="#f0f2f5")
+            main_container_parent = root
+            create_window_fn = lambda widget: widget.pack(expand=True, fill='both')
+    else:
+        root.configure(bg="#f0f2f5")
+        main_container_parent = root
+        create_window_fn = lambda widget: widget.pack(expand=True, fill='both')
 
     # Add exit button in top-right corner
     exit_fullscreen_btn = tk.Button(root, text="✕", command=on_exit, font=("Segoe UI", 16), 
@@ -108,8 +147,9 @@ def launch_login_gui(on_success):
     exit_fullscreen_btn.bind("<Enter>", lambda e: exit_fullscreen_btn.configure(fg="#e74c3c"))
     exit_fullscreen_btn.bind("<Leave>", lambda e: exit_fullscreen_btn.configure(fg="#5f6368"))
 
-    main_container = tk.Frame(root, bg="#f0f2f5", padx=40, pady=40)
-    main_container.pack(expand=True, fill="both")
+    # Create the main container (placed on top of the canvas if present)
+    main_container = tk.Frame(main_container_parent, bg="#f0f2f5", padx=40, pady=40)
+    create_window_fn(main_container)
 
     title_frame = tk.Frame(main_container, bg="#f0f2f5")
     title_frame.pack(pady=(0, 40))
