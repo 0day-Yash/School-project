@@ -117,13 +117,20 @@ def launch_login_gui(on_success):
             img = img.resize((sw, sh), Image.LANCZOS)
             overlay = Image.new('RGBA', (sw, sh), (0, 0, 0, int(255 * 0.30)))
             img = Image.alpha_composite(img, overlay)
-            bg_photo = ImageTk.PhotoImage(img)
+
+            # Convert to RGB and create PhotoImage with explicit master to avoid Tkinter image lifecycle issues
+            rgb_img = img.convert('RGB')
 
             canvas = tk.Canvas(root, width=sw, height=sh, highlightthickness=0)
             canvas.pack(fill='both', expand=True)
-            # Keep a strong reference on the root to avoid GC and Tcl image disposal
+
+            bg_photo = ImageTk.PhotoImage(rgb_img, master=root)
+            # Keep a strong reference on the root and canvas to avoid GC and Tcl image disposal
             root._bg_photo = bg_photo
             canvas.bg_photo = bg_photo  # also keep on canvas
+
+            # Ensure Tk has registered the image before creating the canvas item
+            root.update_idletasks()
             canvas.create_image(0, 0, image=root._bg_photo, anchor='nw')
 
             # main content will be placed on the canvas (centered)
