@@ -6,12 +6,18 @@ from admin import AdminPanel
 import sqlite3
 from db_init import DB_NAME
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s:%(name)s:%(message)s')
 
 class Dashboard:
     def __init__(self, root, username, is_admin):
         self.root = root
         self.username = username
         self.is_admin = is_admin
+        logger.debug("Initializing Dashboard for user=%s is_admin=%s", username, is_admin)
         self.setup_styles()
         self.setup_gui()
         self.update_clock()
@@ -248,25 +254,30 @@ class Dashboard:
             self.root.destroy()
 
     def open_borrow(self):
+        logger.debug("open_borrow called for user=%s", self.username)
         borrow_window = tk.Toplevel(self.root)
         BorrowGUI(borrow_window, self.username)
         borrow_window.protocol("WM_DELETE_WINDOW", lambda: [borrow_window.destroy(), self.update_stats()])
 
     def open_return(self):
+        logger.debug("open_return called for user=%s", self.username)
         return_window = tk.Toplevel(self.root)
         ReturnGUI(return_window, self.username)
         return_window.protocol("WM_DELETE_WINDOW", lambda: [return_window.destroy(), self.update_stats()])
 
     def open_history(self):
+        logger.debug("open_history called for user=%s", self.username)
         history_window = tk.Toplevel(self.root)
         HistoryGUI(history_window, self.username)
 
     def open_recommendations(self):
+        logger.debug("open_recommendations called for user=%s", self.username)
         rec_window = tk.Toplevel(self.root)
         RecommendationsGUI(rec_window, self.username)
 
     def open_admin_panel(self):
         if self.is_admin:
+            logger.debug("open_admin_panel called for admin user=%s", self.username)
             admin_window = tk.Toplevel(self.root)
             AdminPanel(admin_window, self.username, lambda: [admin_window.destroy(), self.update_stats()])
             admin_window.protocol("WM_DELETE_WINDOW", lambda: [admin_window.destroy(), self.update_stats()])
@@ -385,6 +396,7 @@ class MainMenu:
         launch_login_gui(self.on_login_success)
 
     def on_login_success(self, username, is_admin):
+        logger.debug("on_login_success called with username=%s is_admin=%s", username, is_admin)
         self.root.deiconify()
         dashboard_window = tk.Toplevel(self.root)
         dashboard = Dashboard(dashboard_window, username, is_admin)

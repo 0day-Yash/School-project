@@ -1,8 +1,13 @@
+import logging
 import tkinter as tk
 from tkinter import messagebox, ttk
 import sqlite3
 import bcrypt
 from db_init import init_db, DB_NAME
+
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s:%(name)s:%(message)s')
 
 def register_user(username, password, is_admin=0):
     hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
@@ -11,8 +16,10 @@ def register_user(username, password, is_admin=0):
             c = conn.cursor()
             c.execute("INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, ?)", (username, hashed, is_admin))
             conn.commit()
+            logger.info("Registered user %s admin=%s", username, is_admin)
             return True
     except sqlite3.IntegrityError:
+        logger.warning("Attempt to register duplicate username %s", username)
         return False
 
 def login_user(username, password):
@@ -22,9 +29,12 @@ def login_user(username, password):
             c.execute("SELECT password_hash, is_admin FROM users WHERE username = ?", (username,))
             row = c.fetchone()
             if row and bcrypt.checkpw(password.encode(), row[0]):
+                logger.info("User %s logged in (admin=%s)", username, row[1])
                 return True, row[1]
+            logger.info("Failed login attempt for user %s", username)
             return False, 0
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        logger.exception("Database error during login for %s: %s", username, e)
         return False, 0
 
 def launch_login_gui(on_success):

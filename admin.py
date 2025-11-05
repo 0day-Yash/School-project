@@ -252,13 +252,12 @@ class AdminPanel:
             user_win.configure(bg="#e9ecef")
 
             tk.Label(user_win, text="Users List", font=("Segoe UI", 16, "bold"), bg="#e9ecef", fg="#007bff").pack(anchor="w", padx=15, pady=10)
-            user_tree = ttk.Treeview(user_win, columns=("Username", "Admin", "Action"), show="headings")
+            # Treeview showing username and admin status. Actions are handled by selection + buttons below.
+            user_tree = ttk.Treeview(user_win, columns=("Username", "Admin"), show="headings", selectmode="browse")
             user_tree.heading("Username", text="Username")
             user_tree.heading("Admin", text="Admin")
-            user_tree.heading("Action", text="Action")
-            user_tree.column("Username", width=200)
-            user_tree.column("Admin", width=100)
-            user_tree.column("Action", width=100)
+            user_tree.column("Username", width=300)
+            user_tree.column("Admin", width=100, anchor="center")
             user_tree.pack(fill="x", padx=15, pady=10)
 
             user_scrollbar = ttk.Scrollbar(user_win, orient="vertical", command=user_tree.yview)
@@ -267,8 +266,72 @@ class AdminPanel:
 
             for user in users:
                 username, is_admin = user
-                user_tree.insert("", "end", values=(username, "Yes" if is_admin else "No", "Delete"), tags=(username,))
-                user_tree.tag_bind(username, "<Button-1>", lambda e, u=username: self.delete_user(u) if user_tree.identify_column(e.x) == "#3" else None)
+                user_tree.insert("", "end", values=(username, "Yes" if is_admin else "No"))
+
+            # Selection helpers and action buttons
+            action_frame = tk.Frame(user_win, bg="#e9ecef")
+            action_frame.pack(fill="x", padx=15, pady=(5, 15))
+
+            selected_label = tk.Label(action_frame, text="Selected: None", font=("Segoe UI", 11), bg="#e9ecef")
+            selected_label.pack(side="left")
+
+            def on_user_select(event):
+                sel = user_tree.selection()
+                if not sel:
+                    selected_label.config(text="Selected: None")
+                    return
+                vals = user_tree.item(sel[0])['values']
+                selected_label.config(text=f"Selected: {vals[0]} (Admin: {vals[1]})")
+
+            user_tree.bind("<<TreeviewSelect>>", on_user_select)
+
+            def delete_selected_user():
+                sel = user_tree.selection()
+                if not sel:
+                    messagebox.showwarning("Warning", "Please select a user to delete")
+                    return
+                username = user_tree.item(sel[0])['values'][0]
+                self.delete_user(username)
+
+            def toggle_admin_selected():
+                sel = user_tree.selection()
+                if not sel:
+                    messagebox.showwarning("Warning", "Please select a user to promote/demote")
+                    return
+                username = user_tree.item(sel[0])['values'][0]
+                if username == self.username:
+                    messagebox.showerror("Error", "Cannot change your own admin status while logged in.")
+                    return
+                try:
+                    with sqlite3.connect(self.db_name) as conn:
+                        c = conn.cursor()
+                        c.execute("SELECT is_admin FROM users WHERE username = ?", (username,))
+                        row = c.fetchone()
+                        if not row:
+                            messagebox.showerror("Error", "User not found")
+                            return
+                        current = row[0]
+                        new = 0 if current else 1
+                        # If demoting an admin, ensure at least one admin remains
+                        if current and new == 0:
+                            c.execute("SELECT COUNT(*) FROM users WHERE is_admin = 1")
+                            admins = c.fetchone()[0]
+                            if admins <= 1:
+                                messagebox.showwarning("Warning", "Cannot demote the last remaining admin.")
+                                return
+                        c.execute("UPDATE users SET is_admin = ? WHERE username = ?", (new, username))
+                        conn.commit()
+                    messagebox.showinfo("Success", f"User '{username}' admin status set to {new}.")
+                    # refresh list
+                    self.view_users()
+                    user_win.destroy()
+                except sqlite3.Error as e:
+                    messagebox.showerror("Error", f"Failed to update user: {e}")
+
+            promote_btn = tk.Button(action_frame, text="Toggle Admin", command=toggle_admin_selected, font=("Segoe UI", 11, "bold"), bg="#17a2b8", fg="white", relief="flat", cursor="hand2")
+            promote_btn.pack(side="right", padx=5)
+            delete_btn = tk.Button(action_frame, text="Delete Selected", command=delete_selected_user, font=("Segoe UI", 11, "bold"), bg="#dc3545", fg="white", relief="flat", cursor="hand2")
+            delete_btn.pack(side="right", padx=5)
 
             tk.Label(user_win, text="Borrowing History", font=("Segoe UI", 16, "bold"), bg="#e9ecef", fg="#007bff").pack(anchor="w", padx=15, pady=10)
             borrow_tree = ttk.Treeview(user_win, columns=("ID", "Username", "Book", "Borrow Date", "Due Date", "Return Date", "Fine"), show="headings")
