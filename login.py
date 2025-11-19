@@ -59,7 +59,14 @@ def launch_login_gui(on_success):
             # Disable buttons to prevent double-clicks
             login_btn.config(state="disabled")
             register_btn.config(state="disabled")
-            root.after(1000, lambda: [root.destroy(), on_success(username, is_admin)])
+            # Close only this login window (Toplevel) or the root we created, then call on_success
+            def finish():
+                try:
+                    root.destroy()
+                except Exception:
+                    pass
+                on_success(username, is_admin)
+            root.after(500, finish)
         else:
             status_label.config(text="Invalid username or password.", fg="#e74c3c")
             password_entry.delete(0, tk.END)
@@ -101,7 +108,13 @@ def launch_login_gui(on_success):
         if messagebox.askokcancel("Exit", "Are you sure you want to exit?"):
             root.destroy()
 
-    root = tk.Tk()
+    # Create a Toplevel when a default root exists to avoid multiple Tk() instances.
+    if tk._default_root:
+        root = tk.Toplevel(tk._default_root)
+        created_root = False
+    else:
+        root = tk.Tk()
+        created_root = True
     root.title("A&Y Library Login")
     root.attributes('-fullscreen', True)
 

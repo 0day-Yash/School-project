@@ -14,6 +14,23 @@ logger = logging.getLogger(__name__)
 if not logger.handlers:
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s:%(name)s:%(message)s')
 
+# Configure Treeview heading style so column headers are visible (white on black)
+try:
+    _style = ttk.Style()
+    # Use default theme for predictable styling
+    try:
+        _style.theme_use('default')
+    except Exception:
+        pass
+    _style.configure("Treeview.Heading", background="#000000", foreground="#ffffff", font=("Segoe UI", 10, "bold"))
+    _style.configure("Treeview", font=("Segoe UI", 10), foreground="#111111")
+    # Ensure heading maps are set for active/pressed states
+    _style.map("Treeview.Heading",
+               background=[('active', '#000000'), ('pressed', '#111111')],
+               foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
+except Exception:
+    logger.exception("Failed to configure Treeview heading style")
+
 class BorrowReturnSystem:
     def __init__(self):
         self.db_name = DB_NAME
@@ -239,8 +256,8 @@ class BorrowGUI:
         self.root.geometry("1000x600")
         self.root.configure(bg="#f0f2f5")
 
+        # Create main container but defer packing until control bar is created
         main_container = tk.Frame(self.root, bg="#f0f2f5", padx=20, pady=20)
-        main_container.pack(expand=True, fill="both")
 
         title = tk.Label(main_container, text="Available Books", font=("Segoe UI", 24, "bold"), bg="#f0f2f5", fg="#1a73e8")
         title.pack(pady=(0, 20))
@@ -271,7 +288,7 @@ class BorrowGUI:
         self.tree.bind("<Double-1>", lambda e: self.borrow_selected_book())
         self.tree.bind("<<TreeviewSelect>>", lambda e: logger.debug("Tree selection changed: %s", self.tree.selection()))
 
-        # Bottom control bar
+        # Bottom control bar: pack BEFORE the main_container so it reserves space at bottom
         control_bar = tk.Frame(self.root, bg="#f0f2f5", padx=10, pady=8)
         control_bar.pack(side="bottom", fill="x")
         control_bar.configure(relief="raised", bd=1)
@@ -284,6 +301,9 @@ class BorrowGUI:
         borrow_btn.pack(side="right", padx=6)
         back_btn = tk.Button(control_bar, text="Back", command=self.root.destroy, font=("Segoe UI", 12, "bold"), bg="#6c757d", fg="white", relief="flat", cursor="hand2", padx=16, pady=8)
         back_btn.pack(side="right", padx=6)
+
+        # Now pack the main content area so it fills remaining space above control_bar
+        main_container.pack(expand=True, fill="both")
 
         # Keyboard binding: Enter to borrow
         self.root.bind('<Return>', lambda e: self.borrow_selected_book())
@@ -352,9 +372,8 @@ class ReturnGUI:
         self.root.title("Return Books")
         self.root.geometry("1000x600")
         self.root.configure(bg="#f0f2f5")
-
+        # Create main container but defer packing until control bar is created
         main_container = tk.Frame(self.root, bg="#f0f2f5", padx=20, pady=20)
-        main_container.pack(expand=True, fill="both")
 
         title = tk.Label(main_container, text="Your Borrowed Books", font=("Segoe UI", 24, "bold"), bg="#f0f2f5", fg="#1a73e8")
         title.pack(pady=(0, 20))
@@ -376,7 +395,7 @@ class ReturnGUI:
         scrollbar.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scrollbar.set)
 
-        # Bottom control bar for return
+        # Bottom control bar for return: pack BEFORE the main_container so it reserves bottom space
         control_bar = tk.Frame(self.root, bg="#f0f2f5", padx=10, pady=8)
         control_bar.pack(side="bottom", fill="x")
         control_bar.configure(relief="raised", bd=1)
@@ -389,6 +408,9 @@ class ReturnGUI:
         return_btn.pack(side="right", padx=6)
         back_btn = tk.Button(control_bar, text="Back", command=self.root.destroy, font=("Segoe UI", 12, "bold"), bg="#6c757d", fg="white", relief="flat", cursor="hand2", padx=16, pady=8)
         back_btn.pack(side="right", padx=6)
+
+        # Now pack the main content area so it fills remaining space above control_bar
+        main_container.pack(expand=True, fill="both")
 
         # Keyboard binding: Enter to return
         self.root.bind('<Return>', lambda e: self.return_selected_book())
@@ -411,6 +433,29 @@ class ReturnGUI:
             return
         borrowing_id = self.tree.item(selected[0])["values"][0]
         logger.debug("User %s attempting to return borrowing id %s", self.username, borrowing_id)
+        # Pre-check: fetch due_date and calculate potential fine to confirm with user
+        fine = 0
+        try:
+            with sqlite3.connect(self.borrow_system.db_name) as conn:
+                c = conn.cursor()
+                c.execute("SELECT due_date FROM borrowings WHERE id = ?", (borrowing_id,))
+                row = c.fetchone()
+                if row and row[0]:
+                    due_date = row[0]
+                    fine = self.borrow_system.calculate_fine(due_date)
+                else:
+                    fine = 0
+        except sqlite3.Error as e:
+            logger.exception("Error fetching due_date for borrowing id %s: %s", borrowing_id, e)
+            messagebox.showerror("Error", "Unable to verify due date. Please try again.")
+            return
+
+        if fine > 0:
+            proceed = messagebox.askyesno("Fine Payment Required", f"This book is overdue. A fine of Rs. {fine} is due. Do you want to proceed with the return and pay the fine?")
+            if not proceed:
+                messagebox.showinfo("Return Cancelled", "Return cancelled. Please clear the fine before returning the book.")
+                return
+
         success, message = self.borrow_system.return_book(borrowing_id)
         logger.debug("return_book result: success=%s message=%s", success, message)
         if success:
@@ -482,9 +527,7 @@ class RecommendationsGUI:
         self.root.title("Book Recommendations")
         self.root.geometry("1000x600")
         self.root.configure(bg="#f0f2f5")
-
         main_container = tk.Frame(self.root, bg="#f0f2f5", padx=20, pady=20)
-        main_container.pack(expand=True, fill="both")
 
         title = tk.Label(main_container, text="Recommended Books for You", font=("Segoe UI", 24, "bold"), bg="#f0f2f5", fg="#1a73e8")
         title.pack(pady=(0, 20))
@@ -502,7 +545,7 @@ class RecommendationsGUI:
         scrollbar.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scrollbar.set)
 
-        # Bottom control bar for recommendations
+        # Bottom control bar for recommendations: pack BEFORE the main_container so it reserves bottom space
         control_bar = tk.Frame(self.root, bg="#f0f2f5", padx=10, pady=8)
         control_bar.pack(side="bottom", fill="x")
 
@@ -513,6 +556,9 @@ class RecommendationsGUI:
         borrow_btn.pack(side="right", padx=6)
         back_btn = tk.Button(control_bar, text="Back", command=self.root.destroy, font=("Segoe UI", 12, "bold"), bg="#6c757d", fg="white", relief="flat", cursor="hand2", padx=16, pady=8)
         back_btn.pack(side="right", padx=6)
+
+        # Now pack the main content area so it fills remaining space above control_bar
+        main_container.pack(expand=True, fill="both")
 
         # Keyboard binding: Enter to borrow from recommendations
         self.root.bind('<Return>', lambda e: self.borrow_selected())

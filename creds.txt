@@ -1,0 +1,6 @@
+Aryua:password
+admin:password
+aryan:password
+aryua:password
+yash:password
+yash1:password
