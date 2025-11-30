@@ -255,7 +255,8 @@ def launch_login_gui(on_success):
     # Focus on username entry
     username_entry.focus()
 
-    root.mainloop()
+    if created_root:
+        root.mainloop()
 
 if __name__ == "__main__":
     init_db()

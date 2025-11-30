@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from login import launch_login_gui
-from borrow_return import BorrowGUI, ReturnGUI, HistoryGUI, RecommendationsGUI
+from borrow_return import BorrowGUI, ReturnGUI, HistoryGUI, RecommendationsGUI, setup_styles
 from admin import AdminPanel
 import sqlite3
 from db_init import DB_NAME
@@ -303,6 +303,8 @@ class Dashboard:
 class MainMenu:
     def __init__(self, root=None):
         self.root = root if root else tk.Tk()
+        # Initialize styles now that root exists
+        setup_styles()
         self.root.title("A&Y Library System")
         self.root.attributes('-fullscreen', True)
         self.root.configure(bg="#f5f7fa")

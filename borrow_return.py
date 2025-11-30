@@ -14,22 +14,23 @@ logger = logging.getLogger(__name__)
 if not logger.handlers:
     logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s:%(name)s:%(message)s')
 
-# Configure Treeview heading style so column headers are visible (white on black)
-try:
-    _style = ttk.Style()
-    # Use default theme for predictable styling
+def setup_styles():
+    # Configure Treeview heading style so column headers are visible (white on black)
     try:
-        _style.theme_use('default')
+        _style = ttk.Style()
+        # Use default theme for predictable styling
+        try:
+            _style.theme_use('default')
+        except Exception:
+            pass
+        _style.configure("Treeview.Heading", background="#000000", foreground="#ffffff", font=("Segoe UI", 10, "bold"))
+        _style.configure("Treeview", font=("Segoe UI", 10), foreground="#111111")
+        # Ensure heading maps are set for active/pressed states
+        _style.map("Treeview.Heading",
+                   background=[('active', '#000000'), ('pressed', '#111111')],
+                   foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
     except Exception:
-        pass
-    _style.configure("Treeview.Heading", background="#000000", foreground="#ffffff", font=("Segoe UI", 10, "bold"))
-    _style.configure("Treeview", font=("Segoe UI", 10), foreground="#111111")
-    # Ensure heading maps are set for active/pressed states
-    _style.map("Treeview.Heading",
-               background=[('active', '#000000'), ('pressed', '#111111')],
-               foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
-except Exception:
-    logger.exception("Failed to configure Treeview heading style")
+        logger.exception("Failed to configure Treeview heading style")
 
 class BorrowReturnSystem:
     def __init__(self):
