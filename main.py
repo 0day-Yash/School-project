@@ -105,6 +105,14 @@ class Dashboard:
                                    bg="#ffffff", fg="#6c757d")
         self.date_label.pack()
 
+        # Logout button
+        logout_btn = tk.Button(top_bar, text="🚪 Logout", command=self.logout, 
+                              font=("Segoe UI", 12), bg="#ffffff", fg="#6c757d", 
+                              relief="flat", cursor="hand2", padx=15, pady=5)
+        logout_btn.pack(side="right", padx=5)
+        logout_btn.bind("<Enter>", lambda e: logout_btn.configure(bg="#e2e6ea", fg="#343a40"))
+        logout_btn.bind("<Leave>", lambda e: logout_btn.configure(bg="#ffffff", fg="#6c757d"))
+
         # Exit button on right
         exit_btn = tk.Button(top_bar, text="✕ Exit", command=self.confirm_exit, 
                             font=("Segoe UI", 12), bg="#ffffff", fg="#dc3545", 
