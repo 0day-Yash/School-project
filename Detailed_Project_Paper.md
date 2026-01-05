@@ -2194,11 +2194,11 @@ The experience of building this complete system, from database design through us
 
 ---
 
-**Document Prepared By:** Srinivasa Somayaji
+**Document Prepared By:** Yash Kulkarni   
 
-**Date of Preparation:** December 2023
+**Date of Preparation:** December 2025
 
-**Academic Session:** 2022-2023
+**Academic Session:** 2025-2026
 
 **School:** St. Mary's English Medium School, Kannarpady, Udupi
 
